@@ -485,25 +485,30 @@ export default function GuessTheSongGame() {
           </button>
 
           <div className="flex items-center gap-2 text-zinc-500 text-xs">
-            <div className="flex-1 h-px bg-zinc-700" /> or join with a code{" "}
+            <div className="flex-1 h-px bg-zinc-700" /> OR{" "}
             <div className="flex-1 h-px bg-zinc-700" />
           </div>
 
-          <form onSubmit={joinRoom} className="flex gap-2">
-            <input
-              value={joinCodeInput}
-              onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-              placeholder="ROOM CODE"
-              maxLength={5}
-              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 font-mono tracking-widest text-center"
-            />
-            <button
-              type="submit"
-              disabled={menuBusy}
-              className="rounded-full border border-zinc-600 px-5 py-2 font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
-            >
-              Join
-            </button>
+          <form onSubmit={joinRoom} className="flex flex-col gap-2">
+            <label className="text-sm text-zinc-400 font-semibold">
+              🔗 Join a Room — got a code from a friend?
+            </label>
+            <div className="flex gap-2">
+              <input
+                value={joinCodeInput}
+                onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+                placeholder="ROOM CODE"
+                maxLength={5}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 font-mono tracking-widest text-center"
+              />
+              <button
+                type="submit"
+                disabled={menuBusy}
+                className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+              >
+                Join
+              </button>
+            </div>
           </form>
           {menuError && <p className="text-red-400 text-sm text-center">{menuError}</p>}
         </div>
