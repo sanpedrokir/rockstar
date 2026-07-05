@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/app/lib/prisma";
 import { createSession, deleteSession, getSession } from "@/app/lib/session";
+import { isBotName } from "@/app/lib/bots";
 
 export async function GET() {
   const session = await getSession();
@@ -18,6 +19,9 @@ export async function POST(request: Request) {
       { error: "Name must be 2-20 characters" },
       { status: 400 }
     );
+  }
+  if (isBotName(gameName)) {
+    return NextResponse.json({ error: "That name is reserved" }, { status: 400 });
   }
   if (!/^\d{4,6}$/.test(pin)) {
     return NextResponse.json(

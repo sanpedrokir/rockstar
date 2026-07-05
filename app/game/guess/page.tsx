@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DIFFICULTIES, type Difficulty, type Song } from "@/app/lib/songs";
+import { DIFFICULTIES, GENRES, type Difficulty, type Genre, type Song } from "@/app/lib/songs";
 import { midiToFreq, pluckString, makeOverdriveCurve, makeReverbImpulse } from "@/app/lib/guitarSynth";
 
 const CLIP_MS = 10000; // mirrors app/lib/room.ts CLIP_MS
 const POLL_MS = 1200;
 const RIFF_BEATS = 20;
 const BEAT_MS = CLIP_MS / RIFF_BEATS;
-const PLAYER_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8] as const; // mirrors MIN/MAX_PLAYERS in app/lib/room.ts
+const PLAYER_COUNTS = [1, 2, 3, 4, 5] as const; // mirrors MIN/MAX_PLAYERS in app/lib/room.ts
 
 type You = { accountId: number; gameName: string };
 type Player = { id: number; accountId: number; gameName: string; score: number };
@@ -27,6 +27,7 @@ type RoomState = {
   code: string;
   status: "lobby" | "active" | "finished";
   difficulty: Difficulty;
+  genre: Genre;
   maxPlayers: number;
   totalRounds: number;
   currentRoundNumber: number;
@@ -178,8 +179,9 @@ export default function GuessTheSongGame() {
   const [authBusy, setAuthBusy] = useState(false);
 
   const [joinCodeInput, setJoinCodeInput] = useState("");
+  const [genreChoice, setGenreChoice] = useState<Genre>("rock");
   const [difficultyChoice, setDifficultyChoice] = useState<Difficulty>("normal");
-  const [maxPlayersChoice, setMaxPlayersChoice] = useState(8);
+  const [maxPlayersChoice, setMaxPlayersChoice] = useState(5);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
 
@@ -382,7 +384,11 @@ export default function GuessTheSongGame() {
       const res = await fetch("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ difficulty: difficultyChoice, maxPlayers: maxPlayersChoice }),
+        body: JSON.stringify({
+          genre: genreChoice,
+          difficulty: difficultyChoice,
+          maxPlayers: maxPlayersChoice,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -564,6 +570,26 @@ export default function GuessTheSongGame() {
               </div>
 
               <div className="w-full flex flex-col gap-1 items-center">
+                <p className="text-xs text-zinc-500 uppercase tracking-wide">Genre</p>
+                <div className="flex gap-1.5">
+                  {GENRES.map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => setGenreChoice(g)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition-colors ${
+                        genreChoice === g
+                          ? "bg-white text-black"
+                          : "border border-zinc-600 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                    >
+                      {g}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="w-full flex flex-col gap-1 items-center">
                 <p className="text-xs text-zinc-500 uppercase tracking-wide">Difficulty</p>
                 <div className="flex gap-1.5">
                   {DIFFICULTIES.map((d) => (
@@ -642,6 +668,9 @@ export default function GuessTheSongGame() {
             {room.code}
           </button>
           <div className="flex flex-wrap justify-center gap-2">
+            <span className="text-xs uppercase tracking-wide text-zinc-500 bg-zinc-800 rounded-full px-3 py-1">
+              Genre: {room.genre}
+            </span>
             <span className="text-xs uppercase tracking-wide text-zinc-500 bg-zinc-800 rounded-full px-3 py-1">
               Difficulty: {room.difficulty}
             </span>

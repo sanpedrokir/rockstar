@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getSession } from "@/app/lib/session";
 import { generateRoomCode, TOTAL_ROUNDS, MIN_PLAYERS, MAX_PLAYERS } from "@/app/lib/room";
-import { DIFFICULTIES, type Difficulty } from "@/app/lib/songs";
+import { DIFFICULTIES, GENRES, type Difficulty, type Genre } from "@/app/lib/songs";
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -15,6 +15,9 @@ export async function POST(request: Request) {
   const difficulty: Difficulty = DIFFICULTIES.includes(requestedDifficulty)
     ? requestedDifficulty
     : "normal";
+
+  const requestedGenre = body?.genre;
+  const genre: Genre = GENRES.includes(requestedGenre) ? requestedGenre : "rock";
 
   const requestedMaxPlayers = Number(body?.maxPlayers);
   const maxPlayers = Number.isInteger(requestedMaxPlayers)
@@ -30,6 +33,7 @@ export async function POST(request: Request) {
           hostId: session.accountId,
           totalRounds: TOTAL_ROUNDS,
           difficulty,
+          genre,
           maxPlayers,
           players: { create: { accountId: session.accountId } },
         },

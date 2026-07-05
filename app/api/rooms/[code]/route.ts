@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getSession } from "@/app/lib/session";
-import { computeRoundPhase } from "@/app/lib/room";
+import { CLIP_MS, computeRoundPhase } from "@/app/lib/room";
+import { isBotName, botGuess } from "@/app/lib/bots";
 import { SONGS, type Song } from "@/app/lib/songs";
 
 function songLookup(id: number): Song | null {
@@ -32,6 +33,36 @@ export async function GET(
   const membership = room.players.find((p) => p.accountId === session.accountId);
   if (!membership) {
     return NextResponse.json({ error: "Not a member of this room" }, { status: 403 });
+  }
+
+  // Bots don't poll, so simulate their guess lazily: the first real player to
+  // poll after the clip has finished playing triggers it on their behalf.
+  const currentRoundForBots = room.rounds[0];
+  if (room.status === "active" && currentRoundForBots) {
+    const pastClip = Date.now() >= currentRoundForBots.startedAt.getTime() + CLIP_MS;
+    if (pastClip) {
+      const missingBots = room.players.filter(
+        (p) =>
+          isBotName(p.account.gameName) &&
+          !currentRoundForBots.guesses.some((g) => g.roomPlayerId === p.id)
+      );
+      for (const bot of missingBots) {
+        const { guessedSongId, isCorrect } = botGuess(
+          currentRoundForBots.songId,
+          currentRoundForBots.optionIds
+        );
+        try {
+          const guess = await prisma.guess.create({
+            data: { roundId: currentRoundForBots.id, roomPlayerId: bot.id, guessedSongId, isCorrect },
+          });
+          currentRoundForBots.guesses.push(guess);
+        } catch (err: unknown) {
+          // Another concurrent poll (a different player) already inserted
+          // this bot's guess for the round -- nothing left to do here.
+          if ((err as { code?: string })?.code !== "P2002") throw err;
+        }
+      }
+    }
   }
 
   const allGuesses = await prisma.guess.findMany({
@@ -78,6 +109,7 @@ export async function GET(
     code: room.roomCode,
     status: room.status,
     difficulty: room.difficulty,
+    genre: room.genre,
     maxPlayers: room.maxPlayers,
     totalRounds: room.totalRounds,
     currentRoundNumber: room.currentRound,

@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getSession } from "@/app/lib/session";
 import { MIN_PLAYERS, pickRound } from "@/app/lib/room";
-import type { Difficulty } from "@/app/lib/songs";
+import { ensureBotAccountIds } from "@/app/lib/bots";
+import type { Difficulty, Genre } from "@/app/lib/songs";
 
 export async function POST(
   _request: Request,
@@ -37,7 +38,16 @@ export async function POST(
     );
   }
 
-  const { songId, optionIds } = pickRound([], room.difficulty as Difficulty);
+  const botsNeeded = room.maxPlayers - room.players.length;
+  if (botsNeeded > 0) {
+    const botAccountIds = await ensureBotAccountIds(botsNeeded);
+    await prisma.roomPlayer.createMany({
+      data: botAccountIds.map((accountId) => ({ roomId: room.id, accountId })),
+      skipDuplicates: true,
+    });
+  }
+
+  const { songId, optionIds } = pickRound([], room.difficulty as Difficulty, room.genre as Genre);
   await prisma.$transaction([
     prisma.round.create({
       data: { roomId: room.id, roundNumber: 1, songId, optionIds },

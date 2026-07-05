@@ -1,9 +1,14 @@
 export const DIFFICULTIES = ["easy", "normal", "hard"] as const;
 export type Difficulty = (typeof DIFFICULTIES)[number];
 
-export type Song = { id: number; title: string; artist: string; difficulty: Difficulty };
+export const GENRES = ["rock", "alternative"] as const;
+export type Genre = (typeof GENRES)[number];
 
-export const SONGS: Song[] = [
+export type Song = { id: number; title: string; artist: string; difficulty: Difficulty; genre: Genre };
+
+type SongSeed = { id: number; title: string; artist: string; difficulty: Difficulty };
+
+const ROCK_SEEDS: SongSeed[] = [
   { id: 1, title: "Holiday", artist: "Scorpions", difficulty: "normal" },
   { id: 2, title: "Rock You Like a Hurricane", artist: "Scorpions", difficulty: "easy" },
   { id: 3, title: "Wind of Change", artist: "Scorpions", difficulty: "easy" },
@@ -116,6 +121,39 @@ export const SONGS: Song[] = [
   { id: 87, title: "School's Out", artist: "Alice Cooper", difficulty: "normal" },
   { id: 88, title: "We're Not Gonna Take It", artist: "Twisted Sister", difficulty: "normal" },
   { id: 89, title: "Every Rose Has Its Thorn", artist: "Poison", difficulty: "normal" },
+];
+
+// Real, chart-verified 2025-2026 alternative releases (Billboard Alternative
+// Airplay / Hot Rock & Alternative, iTunes/PopVortex alternative chart) --
+// not decades-old "alternative rock" classics.
+const ALTERNATIVE_SEEDS: SongSeed[] = [
+  { id: 90, title: "Birds of a Feather", artist: "Billie Eilish", difficulty: "easy" },
+  { id: 91, title: "Back to Friends", artist: "Sombr", difficulty: "easy" },
+  { id: 92, title: "Stargazing", artist: "Myles Smith", difficulty: "easy" },
+  { id: 93, title: "Too Sweet", artist: "Hozier", difficulty: "easy" },
+  { id: 94, title: "Dracula", artist: "Tame Impala & JENNIE", difficulty: "easy" },
+
+  { id: 95, title: "Today's Song", artist: "Foo Fighters", difficulty: "normal" },
+  { id: 96, title: "Asking For A Friend", artist: "Foo Fighters", difficulty: "normal" },
+  { id: 97, title: "Orbiter", artist: "Noah Kahan", difficulty: "normal" },
+  { id: 98, title: "The Great Divide", artist: "Noah Kahan", difficulty: "normal" },
+  { id: 99, title: "These Alarms", artist: "Snow Patrol & Kylie Minogue", difficulty: "normal" },
+  { id: 100, title: "Life Goes On", artist: "Oliver Tree", difficulty: "normal" },
+  { id: 101, title: "Edge of the Earth", artist: "The Beaches", difficulty: "normal" },
+  { id: 102, title: "Riptides", artist: "Death Cab for Cutie", difficulty: "normal" },
+  { id: 103, title: "Be With You", artist: "Muse", difficulty: "normal" },
+
+  { id: 104, title: "Dead End", artist: "Snail Mail", difficulty: "hard" },
+  { id: 105, title: "Kill The Ghost", artist: "Little Image", difficulty: "hard" },
+  { id: 106, title: "Self Aware", artist: "Temper City", difficulty: "hard" },
+  { id: 107, title: "Good Citizen", artist: "iyah may", difficulty: "hard" },
+  { id: 108, title: "Sign From God", artist: "Cobrah ft. Grimes", difficulty: "hard" },
+  { id: 109, title: "Dehumanized", artist: "Bring Me the Horizon", difficulty: "hard" },
+];
+
+export const SONGS: Song[] = [
+  ...ROCK_SEEDS.map((s) => ({ ...s, genre: "rock" as const })),
+  ...ALTERNATIVE_SEEDS.map((s) => ({ ...s, genre: "alternative" as const })),
 ];
 
 export function shuffle<T>(arr: T[]): T[] {
