@@ -78,6 +78,7 @@ export async function GET(
     code: room.roomCode,
     status: room.status,
     difficulty: room.difficulty,
+    maxPlayers: room.maxPlayers,
     totalRounds: room.totalRounds,
     currentRoundNumber: room.currentRound,
     hostAccountId: room.hostId,

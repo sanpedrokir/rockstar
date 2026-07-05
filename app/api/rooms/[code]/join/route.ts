@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getSession } from "@/app/lib/session";
-import { MAX_PLAYERS } from "@/app/lib/room";
 
 export async function POST(
   _request: Request,
@@ -29,7 +28,7 @@ export async function POST(
         { status: 409 }
       );
     }
-    if (room.players.length >= MAX_PLAYERS) {
+    if (room.players.length >= room.maxPlayers) {
       return NextResponse.json({ error: "Room is full" }, { status: 409 });
     }
     await prisma.roomPlayer.create({

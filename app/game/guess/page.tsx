@@ -9,6 +9,7 @@ const CLIP_MS = 10000; // mirrors app/lib/room.ts CLIP_MS
 const POLL_MS = 1200;
 const RIFF_BEATS = 20;
 const BEAT_MS = CLIP_MS / RIFF_BEATS;
+const PLAYER_COUNTS = [1, 2, 3, 4, 5, 6, 7, 8] as const; // mirrors MIN/MAX_PLAYERS in app/lib/room.ts
 
 type You = { accountId: number; gameName: string };
 type Player = { id: number; accountId: number; gameName: string; score: number };
@@ -26,6 +27,7 @@ type RoomState = {
   code: string;
   status: "lobby" | "active" | "finished";
   difficulty: Difficulty;
+  maxPlayers: number;
   totalRounds: number;
   currentRoundNumber: number;
   hostAccountId: number;
@@ -90,8 +92,9 @@ function playVocalLayer(
   startTime: number,
   destination: AudioNode,
   reverb: AudioNode | null
-) {
+): { stop: () => void } {
   const rand = seededRandom(songId * 40503 + 7);
+  const activeOscillators: OscillatorNode[] = [];
   const vocalRootMidi = 57 + Math.floor(rand() * 12); // ~A3-G#4, rock vocal range
   const scale = [0, 2, 3, 5, 7, 9, 10];
   const noteCount = 6;
@@ -147,9 +150,23 @@ function playVocalLayer(
     osc.stop(t + dur + 0.05);
     vibrato.start(t);
     vibrato.stop(t + dur + 0.05);
+    activeOscillators.push(osc, vibrato);
 
     t += dur;
   }
+
+  return {
+    stop: () => {
+      const now = ctx.currentTime;
+      for (const osc of activeOscillators) {
+        try {
+          osc.stop(now);
+        } catch {
+          // already stopped
+        }
+      }
+    },
+  };
 }
 
 export default function GuessTheSongGame() {
@@ -162,6 +179,7 @@ export default function GuessTheSongGame() {
 
   const [joinCodeInput, setJoinCodeInput] = useState("");
   const [difficultyChoice, setDifficultyChoice] = useState<Difficulty>("normal");
+  const [maxPlayersChoice, setMaxPlayersChoice] = useState(8);
   const [menuError, setMenuError] = useState<string | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
 
@@ -175,6 +193,7 @@ export default function GuessTheSongGame() {
   const lastPlayedRoundRef = useRef<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const realClipRef = useRef<HTMLAudioElement | null>(null);
+  const activeClipRef = useRef<{ stop: () => void } | null>(null);
 
   useEffect(() => {
     fetch("/api/auth")
@@ -237,16 +256,31 @@ export default function GuessTheSongGame() {
       if (reverbRef.current) wetGain.connect(reverbRef.current);
 
       source.start(startTime);
-      playVocalLayer(ctx, songId, startTime, ctx.destination, reverbRef.current);
+      const vocal = playVocalLayer(ctx, songId, startTime, ctx.destination, reverbRef.current);
+      return {
+        stop: () => {
+          try {
+            source.stop(ctx.currentTime);
+          } catch {
+            // already stopped
+          }
+          vocal.stop();
+        },
+      };
     },
     [getAudioContext]
   );
 
   // Try the real recording first (iTunes' 30s preview clips — actual drums,
   // vocals, guitar), and only fall back to the synthesized riff if no preview
-  // is available or playback is blocked.
+  // is available or playback is blocked. Whatever plays is capped at CLIP_MS
+  // and can also be cut short immediately (guess submitted, round moved on).
   const playClip = useCallback(
     async (songId: number) => {
+      activeClipRef.current?.stop();
+      activeClipRef.current = null;
+
+      let usedReal = false;
       try {
         const res = await fetch(`/api/preview?songId=${songId}`);
         const data = await res.json();
@@ -255,18 +289,30 @@ export default function GuessTheSongGame() {
           audio.volume = 0.85;
           realClipRef.current = audio;
           await audio.play();
-          setTimeout(() => {
-            if (realClipRef.current === audio) audio.pause();
-          }, CLIP_MS);
-          return;
+          usedReal = true;
+          const controller = {
+            stop: () => {
+              audio.pause();
+              if (realClipRef.current === audio) realClipRef.current = null;
+            },
+          };
+          activeClipRef.current = controller;
+          setTimeout(() => controller.stop(), CLIP_MS);
         }
       } catch {
         // fall through to the synth below
       }
-      playRiff(songId);
+      if (!usedReal) {
+        activeClipRef.current = playRiff(songId);
+      }
     },
     [playRiff]
   );
+
+  const stopActiveClip = useCallback(() => {
+    activeClipRef.current?.stop();
+    activeClipRef.current = null;
+  }, []);
 
   const fetchRoom = useCallback(async (code: string) => {
     const res = await fetch(`/api/rooms/${code}`);
@@ -301,6 +347,12 @@ export default function GuessTheSongGame() {
     playClip(room.round.songId);
   }, [room, playClip]);
 
+  // Cut the clip short the moment the round leaves the "clip" phase, whether
+  // that's because everyone (including you) guessed, or the clip timed out.
+  useEffect(() => {
+    if (room?.round && room.round.phase !== "clip") stopActiveClip();
+  }, [room, stopActiveClip]);
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthBusy(true);
@@ -330,7 +382,7 @@ export default function GuessTheSongGame() {
       const res = await fetch("/api/rooms", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ difficulty: difficultyChoice }),
+        body: JSON.stringify({ difficulty: difficultyChoice, maxPlayers: maxPlayersChoice }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -378,6 +430,7 @@ export default function GuessTheSongGame() {
 
   const submitGuess = async (songId: number) => {
     if (!roomCode) return;
+    stopActiveClip();
     setActionBusy(true);
     try {
       const res = await fetch(`/api/rooms/${roomCode}/guess`, {
@@ -407,8 +460,7 @@ export default function GuessTheSongGame() {
   };
 
   const leaveToMenu = () => {
-    realClipRef.current?.pause();
-    realClipRef.current = null;
+    stopActiveClip();
     setRoomCode(null);
     setRoom(null);
     setRoomError(null);
@@ -488,22 +540,49 @@ export default function GuessTheSongGame() {
               <p className="text-zinc-400 text-sm">
                 Create a room and share the code with friends.
               </p>
-              <div className="flex gap-1.5">
-                {DIFFICULTIES.map((d) => (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setDifficultyChoice(d)}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition-colors ${
-                      difficultyChoice === d
-                        ? "bg-white text-black"
-                        : "border border-zinc-600 text-zinc-400 hover:bg-zinc-800"
-                    }`}
-                  >
-                    {d}
-                  </button>
-                ))}
+
+              <div className="w-full flex flex-col gap-1 items-center">
+                <p className="text-xs text-zinc-500 uppercase tracking-wide">
+                  Players (1 = just you)
+                </p>
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {PLAYER_COUNTS.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setMaxPlayersChoice(n)}
+                      className={`w-8 h-8 rounded-full text-xs font-semibold transition-colors ${
+                        maxPlayersChoice === n
+                          ? "bg-white text-black"
+                          : "border border-zinc-600 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
               </div>
+
+              <div className="w-full flex flex-col gap-1 items-center">
+                <p className="text-xs text-zinc-500 uppercase tracking-wide">Difficulty</p>
+                <div className="flex gap-1.5">
+                  {DIFFICULTIES.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setDifficultyChoice(d)}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition-colors ${
+                        difficultyChoice === d
+                          ? "bg-white text-black"
+                          : "border border-zinc-600 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <button
                 onClick={createRoom}
                 disabled={menuBusy}
@@ -562,9 +641,14 @@ export default function GuessTheSongGame() {
           >
             {room.code}
           </button>
-          <span className="text-xs uppercase tracking-wide text-zinc-500 bg-zinc-800 rounded-full px-3 py-1">
-            Difficulty: {room.difficulty}
-          </span>
+          <div className="flex flex-wrap justify-center gap-2">
+            <span className="text-xs uppercase tracking-wide text-zinc-500 bg-zinc-800 rounded-full px-3 py-1">
+              Difficulty: {room.difficulty}
+            </span>
+            <span className="text-xs uppercase tracking-wide text-zinc-500 bg-zinc-800 rounded-full px-3 py-1">
+              Players: {room.players.length} / {room.maxPlayers}
+            </span>
+          </div>
           <div className="w-full flex flex-col gap-2">
             {room.players.map((p) => (
               <div
