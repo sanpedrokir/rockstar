@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { pluckString, makeOverdriveCurve } from "@/app/lib/guitarSynth";
 
 type Lane = 0 | 1 | 2 | 3;
 
@@ -56,26 +57,39 @@ export default function RockAndRollGame() {
     (lane: Lane) => {
       const ctx = getAudioContext();
       const now = ctx.currentTime;
+      const sampleRate = ctx.sampleRate;
+      const lengthSamples = Math.floor(sampleRate * 0.35);
 
-      const osc = ctx.createOscillator();
-      osc.type = "sawtooth";
-      osc.frequency.value = LANE_FREQS[lane];
+      // Karplus-Strong plucked string instead of a bare oscillator, so a hit
+      // sounds like a struck guitar string rather than an organ/piano tone.
+      const pluck = pluckString(LANE_FREQS[lane], lengthSamples, sampleRate, 0.992, Math.random);
+      const buffer = ctx.createBuffer(1, lengthSamples, sampleRate);
+      buffer.copyToChannel(pluck, 0);
 
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = 1200;
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const overdrive = ctx.createWaveShaper();
+      overdrive.curve = makeOverdriveCurve(35);
+      overdrive.oversample = "4x";
+
+      const toneFilter = ctx.createBiquadFilter();
+      toneFilter.type = "lowpass";
+      toneFilter.frequency.value = 3000;
+      const bodyFilter = ctx.createBiquadFilter();
+      bodyFilter.type = "highpass";
+      bodyFilter.frequency.value = 80;
 
       const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0, now);
-      gain.gain.linearRampToValueAtTime(0.35, now + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      gain.gain.value = 0.55;
 
-      osc.connect(filter);
-      filter.connect(gain);
+      source.connect(overdrive);
+      overdrive.connect(toneFilter);
+      toneFilter.connect(bodyFilter);
+      bodyFilter.connect(gain);
       gain.connect(ctx.destination);
 
-      osc.start(now);
-      osc.stop(now + 0.35);
+      source.start(now);
     },
     [getAudioContext]
   );

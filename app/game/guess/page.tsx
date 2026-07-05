@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Song } from "@/app/lib/songs";
+import { midiToFreq, pluckString, makeOverdriveCurve, makeReverbImpulse } from "@/app/lib/guitarSynth";
 
 const CLIP_MS = 10000; // mirrors app/lib/room.ts CLIP_MS
 const POLL_MS = 1200;
@@ -46,60 +47,6 @@ function seededRandom(seed: number) {
     s = (s * 16807) % 2147483647;
     return (s - 1) / 2147483646;
   };
-}
-
-function midiToFreq(midi: number) {
-  return 440 * Math.pow(2, (midi - 69) / 12);
-}
-
-// classic Karplus-Strong plucked string: a noise burst decays through a
-// leaky averaging delay line tuned to the string length.
-function pluckString(
-  freq: number,
-  lengthSamples: number,
-  sampleRate: number,
-  damping: number,
-  pick: () => number
-) {
-  const n = Math.max(2, Math.round(sampleRate / freq));
-  const ring = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    // taper the initial noise burst so the attack isn't a hard click
-    const taper = Math.sin((Math.PI * i) / n);
-    ring[i] = (pick() * 2 - 1) * taper;
-  }
-  const out = new Float32Array(lengthSamples);
-  let read = 0;
-  for (let i = 0; i < lengthSamples; i++) {
-    out[i] = ring[read];
-    const next = ring[(read + 1) % n];
-    ring[read] = damping * 0.5 * (ring[read] + next);
-    read = (read + 1) % n;
-  }
-  return out;
-}
-
-function makeOverdriveCurve(amount: number) {
-  const samples = 2048;
-  const curve = new Float32Array(samples);
-  for (let i = 0; i < samples; i++) {
-    const x = (i * 2) / samples - 1;
-    curve[i] = ((3 + amount) * x * 20 * (Math.PI / 180)) / (Math.PI + amount * Math.abs(x));
-  }
-  return curve;
-}
-
-function makeReverbImpulse(ctx: AudioContext, seconds: number) {
-  const rate = ctx.sampleRate;
-  const length = Math.floor(rate * seconds);
-  const impulse = ctx.createBuffer(2, length, rate);
-  for (let ch = 0; ch < 2; ch++) {
-    const data = impulse.getChannelData(ch);
-    for (let i = 0; i < length; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.5);
-    }
-  }
-  return impulse;
 }
 
 function renderRiffBuffer(ctx: AudioContext, songId: number) {
@@ -225,6 +172,7 @@ export default function GuessTheSongGame() {
   const reverbRef = useRef<ConvolverNode | null>(null);
   const lastPlayedRoundRef = useRef<number | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const realClipRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     fetch("/api/auth")
@@ -292,6 +240,32 @@ export default function GuessTheSongGame() {
     [getAudioContext]
   );
 
+  // Try the real recording first (iTunes' 30s preview clips — actual drums,
+  // vocals, guitar), and only fall back to the synthesized riff if no preview
+  // is available or playback is blocked.
+  const playClip = useCallback(
+    async (songId: number) => {
+      try {
+        const res = await fetch(`/api/preview?songId=${songId}`);
+        const data = await res.json();
+        if (data.previewUrl) {
+          const audio = new Audio(data.previewUrl);
+          audio.volume = 0.85;
+          realClipRef.current = audio;
+          await audio.play();
+          setTimeout(() => {
+            if (realClipRef.current === audio) audio.pause();
+          }, CLIP_MS);
+          return;
+        }
+      } catch {
+        // fall through to the synth below
+      }
+      playRiff(songId);
+    },
+    [playRiff]
+  );
+
   const fetchRoom = useCallback(async (code: string) => {
     const res = await fetch(`/api/rooms/${code}`);
     const data = await res.json();
@@ -322,8 +296,8 @@ export default function GuessTheSongGame() {
     if (room.round.phase !== "clip") return;
     if (lastPlayedRoundRef.current === room.round.roundNumber) return;
     lastPlayedRoundRef.current = room.round.roundNumber;
-    playRiff(room.round.songId);
-  }, [room, playRiff]);
+    playClip(room.round.songId);
+  }, [room, playClip]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -427,6 +401,8 @@ export default function GuessTheSongGame() {
   };
 
   const leaveToMenu = () => {
+    realClipRef.current?.pause();
+    realClipRef.current = null;
     setRoomCode(null);
     setRoom(null);
     setRoomError(null);
