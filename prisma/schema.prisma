@@ -1,0 +1,85 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Account {
+  id        Int      @id @default(autoincrement())
+  gameName  String   @unique @map("game_name")
+  pinHash   String   @map("pin_hash")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  hostedRooms GameRoom[]   @relation("RoomHost")
+  roomPlayers RoomPlayer[]
+
+  @@map("accounts")
+}
+
+model GameRoom {
+  id           Int      @id @default(autoincrement())
+  roomCode     String   @unique @map("room_code")
+  hostId       Int      @map("host_account_id")
+  host         Account  @relation("RoomHost", fields: [hostId], references: [id])
+  status       String   @default("lobby")
+  totalRounds  Int      @default(8) @map("total_rounds")
+  currentRound Int      @default(0) @map("current_round")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  players RoomPlayer[]
+  rounds  Round[]
+
+  @@map("game_rooms")
+}
+
+model RoomPlayer {
+  id        Int      @id @default(autoincrement())
+  roomId    Int      @map("room_id")
+  room      GameRoom @relation(fields: [roomId], references: [id])
+  accountId Int      @map("account_id")
+  account   Account  @relation(fields: [accountId], references: [id])
+  score     Int      @default(0)
+  joinedAt  DateTime @default(now()) @map("joined_at")
+
+  guesses Guess[]
+
+  @@unique([roomId, accountId])
+  @@map("room_players")
+}
+
+model Round {
+  id          Int      @id @default(autoincrement())
+  roomId      Int      @map("room_id")
+  room        GameRoom @relation(fields: [roomId], references: [id])
+  roundNumber Int      @map("round_number")
+  songId      Int      @map("song_id")
+  optionIds   Int[]    @map("option_ids")
+  startedAt   DateTime @default(now()) @map("started_at")
+
+  guesses Guess[]
+
+  @@unique([roomId, roundNumber])
+  @@map("rounds")
+}
+
+model Guess {
+  id            Int        @id @default(autoincrement())
+  roundId       Int        @map("round_id")
+  round         Round      @relation(fields: [roundId], references: [id])
+  roomPlayerId  Int        @map("room_player_id")
+  roomPlayer    RoomPlayer @relation(fields: [roomPlayerId], references: [id])
+  guessedSongId Int        @map("guessed_song_id")
+  isCorrect     Boolean    @map("is_correct")
+  createdAt     DateTime   @default(now()) @map("created_at")
+
+  @@unique([roundId, roomPlayerId])
+  @@map("guesses")
+}

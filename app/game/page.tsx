@@ -176,7 +176,7 @@ export default function RockAndRollGame() {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-black text-white font-sans px-4 py-10 gap-6">
-      <h1 className="text-4xl font-extrabold tracking-tight text-center">
+      <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-center">
         🎸 Rock &amp; Roll Hero
       </h1>
       <p className="text-zinc-400 text-center max-w-md">
@@ -191,7 +191,7 @@ export default function RockAndRollGame() {
         🎤 Guess the Song (multiplayer)
       </Link>
 
-      <div className="flex gap-8 text-lg font-mono">
+      <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-base sm:text-lg font-mono">
         <span>Score: {score}</span>
         <span>Combo: {combo}</span>
         <span>Misses: {misses}</span>

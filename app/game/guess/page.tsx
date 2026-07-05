@@ -1,454 +1,702 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { Song } from "@/app/lib/songs";
 
-type Song = { id: number; title: string; artist: string };
+const CLIP_MS = 10000; // mirrors app/lib/room.ts CLIP_MS
+const POLL_MS = 1200;
+const RIFF_BEATS = 20;
+const BEAT_MS = CLIP_MS / RIFF_BEATS;
 
-const SONGS: Song[] = [
-  { id: 1, title: "Holiday", artist: "Scorpions" },
-  { id: 2, title: "Rock You Like a Hurricane", artist: "Scorpions" },
-  { id: 3, title: "Wind of Change", artist: "Scorpions" },
-  { id: 4, title: "Still Loving You", artist: "Scorpions" },
-  { id: 5, title: "No One Like You", artist: "Scorpions" },
+type You = { accountId: number; gameName: string };
+type Player = { id: number; accountId: number; gameName: string; score: number };
+type RoundView = {
+  roundNumber: number;
+  songId: number;
+  options: Song[];
+  startedAt: string;
+  phase: "clip" | "guessing" | "reveal";
+  yourGuessSongId: number | null;
+  revealed: boolean;
+  guesses: { roomPlayerId: number; songId?: number; isCorrect?: boolean }[];
+};
+type RoomState = {
+  code: string;
+  status: "lobby" | "active" | "finished";
+  totalRounds: number;
+  currentRoundNumber: number;
+  hostAccountId: number;
+  you: You & { isHost: boolean };
+  players: Player[];
+  round: RoundView | null;
+};
 
-  { id: 6, title: "Paranoid", artist: "Black Sabbath" },
-  { id: 7, title: "Iron Man", artist: "Black Sabbath" },
-  { id: 8, title: "War Pigs", artist: "Black Sabbath" },
-  { id: 9, title: "Sweet Leaf", artist: "Black Sabbath" },
+// ---------------------------------------------------------------------------
+// Guitar synth: Karplus-Strong plucked-string physical model instead of a
+// bare oscillator, so it sounds like a struck/picked string rather than a
+// digital tone. Rendered up front into a buffer (not real-time nodes) so a
+// whole riff is just one AudioBufferSourceNode.
+// ---------------------------------------------------------------------------
 
-  { id: 10, title: "Sweet Child O' Mine", artist: "Guns N' Roses" },
-  { id: 11, title: "Welcome to the Jungle", artist: "Guns N' Roses" },
-  { id: 12, title: "Paradise City", artist: "Guns N' Roses" },
-  { id: 13, title: "November Rain", artist: "Guns N' Roses" },
-  { id: 14, title: "Patience", artist: "Guns N' Roses" },
+function seededRandom(seed: number) {
+  let s = seed % 2147483647;
+  if (s <= 0) s += 2147483646;
+  return () => {
+    s = (s * 16807) % 2147483647;
+    return (s - 1) / 2147483646;
+  };
+}
 
-  { id: 15, title: "Since You Been Gone", artist: "Rainbow" },
-  { id: 16, title: "Man on the Silver Mountain", artist: "Rainbow" },
-  { id: 17, title: "Stargazer", artist: "Rainbow" },
-  { id: 18, title: "Long Live Rock 'n' Roll", artist: "Rainbow" },
+function midiToFreq(midi: number) {
+  return 440 * Math.pow(2, (midi - 69) / 12);
+}
 
-  { id: 19, title: "Back in Black", artist: "AC/DC" },
-  { id: 20, title: "Highway to Hell", artist: "AC/DC" },
-  { id: 21, title: "Thunderstruck", artist: "AC/DC" },
-  { id: 22, title: "You Shook Me All Night Long", artist: "AC/DC" },
-  { id: 23, title: "T.N.T.", artist: "AC/DC" },
-
-  { id: 24, title: "The Number of the Beast", artist: "Iron Maiden" },
-  { id: 25, title: "Run to the Hills", artist: "Iron Maiden" },
-  { id: 26, title: "Fear of the Dark", artist: "Iron Maiden" },
-  { id: 27, title: "The Trooper", artist: "Iron Maiden" },
-  { id: 28, title: "Aces High", artist: "Iron Maiden" },
-
-  { id: 29, title: "Enter Sandman", artist: "Metallica" },
-  { id: 30, title: "Master of Puppets", artist: "Metallica" },
-  { id: 31, title: "Nothing Else Matters", artist: "Metallica" },
-  { id: 32, title: "One", artist: "Metallica" },
-  { id: 33, title: "For Whom the Bell Tolls", artist: "Metallica" },
-
-  { id: 34, title: "Pour Some Sugar on Me", artist: "Def Leppard" },
-  { id: 35, title: "Photograph", artist: "Def Leppard" },
-  { id: 36, title: "Rock of Ages", artist: "Def Leppard" },
-  { id: 37, title: "Hysteria", artist: "Def Leppard" },
-
-  { id: 38, title: "Kickstart My Heart", artist: "Mötley Crüe" },
-  { id: 39, title: "Dr. Feelgood", artist: "Mötley Crüe" },
-  { id: 40, title: "Girls, Girls, Girls", artist: "Mötley Crüe" },
-  { id: 41, title: "Home Sweet Home", artist: "Mötley Crüe" },
-
-  { id: 42, title: "18 and Life", artist: "Skid Row" },
-  { id: 43, title: "I Remember You", artist: "Skid Row" },
-  { id: 44, title: "Youth Gone Wild", artist: "Skid Row" },
-
-  { id: 45, title: "Feel Like Makin' Love", artist: "Bad Company" },
-  { id: 46, title: "Can't Get Enough", artist: "Bad Company" },
-
-  { id: 47, title: "Another Brick in the Wall", artist: "Pink Floyd" },
-  { id: 48, title: "Comfortably Numb", artist: "Pink Floyd" },
-  { id: 49, title: "Wish You Were Here", artist: "Pink Floyd" },
-  { id: 50, title: "Money", artist: "Pink Floyd" },
-  { id: 51, title: "Time", artist: "Pink Floyd" },
-
-  { id: 52, title: "Hotel California", artist: "Eagles" },
-  { id: 53, title: "Take It Easy", artist: "Eagles" },
-  { id: 54, title: "Life in the Fast Lane", artist: "Eagles" },
-  { id: 55, title: "Desperado", artist: "Eagles" },
-
-  { id: 56, title: "Bohemian Rhapsody", artist: "Queen" },
-  { id: 57, title: "We Will Rock You", artist: "Queen" },
-  { id: 58, title: "Don't Stop Me Now", artist: "Queen" },
-
-  { id: 59, title: "Smells Like Teen Spirit", artist: "Nirvana" },
-  { id: 60, title: "Come as You Are", artist: "Nirvana" },
-
-  { id: 61, title: "Stairway to Heaven", artist: "Led Zeppelin" },
-  { id: 62, title: "Whole Lotta Love", artist: "Led Zeppelin" },
-  { id: 63, title: "Kashmir", artist: "Led Zeppelin" },
-
-  { id: 64, title: "Paint It Black", artist: "The Rolling Stones" },
-  { id: 65, title: "Sympathy for the Devil", artist: "The Rolling Stones" },
-
-  { id: 66, title: "Smoke on the Water", artist: "Deep Purple" },
-  { id: 67, title: "Highway Star", artist: "Deep Purple" },
-
-  { id: 68, title: "Livin' on a Prayer", artist: "Bon Jovi" },
-  { id: 69, title: "Wanted Dead or Alive", artist: "Bon Jovi" },
-
-  { id: 70, title: "Don't Stop Believin'", artist: "Journey" },
-
-  { id: 71, title: "Dream On", artist: "Aerosmith" },
-  { id: 72, title: "Walk This Way", artist: "Aerosmith" },
-
-  { id: 73, title: "Jump", artist: "Van Halen" },
-  { id: 74, title: "Panama", artist: "Van Halen" },
-
-  { id: 75, title: "Baba O'Riley", artist: "The Who" },
-  { id: 76, title: "Dreams", artist: "Fleetwood Mac" },
-  { id: 77, title: "With or Without You", artist: "U2" },
-  { id: 78, title: "The Final Countdown", artist: "Europe" },
-
-  { id: 79, title: "Here I Go Again", artist: "Whitesnake" },
-  { id: 80, title: "Breaking the Law", artist: "Judas Priest" },
-  { id: 81, title: "Rock and Roll All Nite", artist: "Kiss" },
-  { id: 82, title: "Crazy Train", artist: "Ozzy Osbourne" },
-  { id: 83, title: "Rainbow in the Dark", artist: "Dio" },
-  { id: 84, title: "Sharp Dressed Man", artist: "ZZ Top" },
-  { id: 85, title: "More Than a Feeling", artist: "Boston" },
-  { id: 86, title: "Tom Sawyer", artist: "Rush" },
-  { id: 87, title: "School's Out", artist: "Alice Cooper" },
-  { id: 88, title: "We're Not Gonna Take It", artist: "Twisted Sister" },
-  { id: 89, title: "Every Rose Has Its Thorn", artist: "Poison" },
-];
-
-const TOTAL_ROUNDS = 8;
-const MIN_PLAYERS = 2;
-const MAX_PLAYERS = 6;
-const CLIP_MS = 1800;
-
-type Phase = "setup" | "clip" | "guessing" | "reveal" | "finished";
-type Guess = { playerIndex: number; songId: number };
-
-function shuffle<T>(arr: T[]): T[] {
-  const copy = [...arr];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
+// classic Karplus-Strong plucked string: a noise burst decays through a
+// leaky averaging delay line tuned to the string length.
+function pluckString(
+  freq: number,
+  lengthSamples: number,
+  sampleRate: number,
+  damping: number,
+  pick: () => number
+) {
+  const n = Math.max(2, Math.round(sampleRate / freq));
+  const ring = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    // taper the initial noise burst so the attack isn't a hard click
+    const taper = Math.sin((Math.PI * i) / n);
+    ring[i] = (pick() * 2 - 1) * taper;
   }
-  return copy;
+  const out = new Float32Array(lengthSamples);
+  let read = 0;
+  for (let i = 0; i < lengthSamples; i++) {
+    out[i] = ring[read];
+    const next = ring[(read + 1) % n];
+    ring[read] = damping * 0.5 * (ring[read] + next);
+    read = (read + 1) % n;
+  }
+  return out;
+}
+
+function makeOverdriveCurve(amount: number) {
+  const samples = 2048;
+  const curve = new Float32Array(samples);
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1;
+    curve[i] = ((3 + amount) * x * 20 * (Math.PI / 180)) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+function makeReverbImpulse(ctx: AudioContext, seconds: number) {
+  const rate = ctx.sampleRate;
+  const length = Math.floor(rate * seconds);
+  const impulse = ctx.createBuffer(2, length, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = impulse.getChannelData(ch);
+    for (let i = 0; i < length; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2.5);
+    }
+  }
+  return impulse;
+}
+
+function renderRiffBuffer(ctx: AudioContext, songId: number) {
+  const rand = seededRandom(songId * 2654435761);
+  const rootMidi = 40 + Math.floor(rand() * 7); // roughly E2-B2, low guitar register
+  const scale = [0, 3, 5, 7, 8, 10]; // minor pentatonic + b6, classic rock riff flavor
+  const sampleRate = ctx.sampleRate;
+  const samplesPerBeat = Math.round((sampleRate * BEAT_MS) / 1000);
+  const total = samplesPerBeat * RIFF_BEATS;
+  const mix = new Float32Array(total);
+
+  for (let beat = 0; beat < RIFF_BEATS; beat++) {
+    const isRest = rand() < 0.15;
+    if (isRest) continue;
+    const interval = scale[Math.floor(rand() * scale.length)];
+    const accent = rand() < 0.3 ? 1.35 : 1;
+    const freq = midiToFreq(rootMidi + interval);
+    const noteLen = Math.floor(samplesPerBeat * 0.92); // slight palm-mute gap between hits
+    const offset = beat * samplesPerBeat;
+
+    const root = pluckString(freq, noteLen, sampleRate, 0.988, rand);
+    const fifth = pluckString(freq * Math.pow(2, 7 / 12), noteLen, sampleRate, 0.985, rand);
+    for (let i = 0; i < noteLen; i++) {
+      mix[offset + i] += accent * (root[i] * 0.8 + fifth[i] * 0.45);
+    }
+  }
+
+  const buffer = ctx.createBuffer(1, total, sampleRate);
+  buffer.copyToChannel(mix, 0);
+  return buffer;
+}
+
+// A "sung" layer: vibrato-modulated tone pushed through vowel-formant bandpass
+// filters, so it reads as a voice riding over the riff rather than another
+// plain oscillator. Real vocal audio for these (copyrighted) songs isn't
+// something we have licensed samples for, so this is a synthesized stand-in.
+function playVocalLayer(
+  ctx: AudioContext,
+  songId: number,
+  startTime: number,
+  destination: AudioNode,
+  reverb: AudioNode | null
+) {
+  const rand = seededRandom(songId * 40503 + 7);
+  const vocalRootMidi = 57 + Math.floor(rand() * 12); // ~A3-G#4, rock vocal range
+  const scale = [0, 2, 3, 5, 7, 9, 10];
+  const noteCount = 6;
+  const noteDur = CLIP_MS / 1000 / noteCount;
+  const formants = [700, 1200, 2600]; // rough "ah" vowel formants
+
+  const vocalMaster = ctx.createGain();
+  vocalMaster.gain.value = 0.16;
+  vocalMaster.connect(destination);
+  if (reverb) {
+    const send = ctx.createGain();
+    send.gain.value = 0.3;
+    vocalMaster.connect(send);
+    send.connect(reverb);
+  }
+
+  let t = startTime;
+  for (let i = 0; i < noteCount; i++) {
+    const interval = scale[Math.floor(rand() * scale.length)];
+    const freq = midiToFreq(vocalRootMidi + interval);
+    const dur = noteDur * (0.85 + rand() * 0.1);
+
+    const osc = ctx.createOscillator();
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(freq * Math.pow(2, -1 / 12), t);
+    osc.frequency.linearRampToValueAtTime(freq, t + 0.08); // slide up into the note, like a sung attack
+
+    const vibrato = ctx.createOscillator();
+    vibrato.type = "sine";
+    vibrato.frequency.value = 5.5;
+    const vibratoGain = ctx.createGain();
+    vibratoGain.gain.value = freq * 0.02;
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc.frequency);
+
+    const noteGain = ctx.createGain();
+    noteGain.gain.setValueAtTime(0, t);
+    noteGain.gain.linearRampToValueAtTime(1, t + 0.05);
+    noteGain.gain.setValueAtTime(1, t + dur - 0.08);
+    noteGain.gain.linearRampToValueAtTime(0, t + dur);
+
+    formants.forEach((f) => {
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.frequency.value = f;
+      bp.Q.value = 8;
+      osc.connect(bp);
+      bp.connect(noteGain);
+    });
+    noteGain.connect(vocalMaster);
+
+    osc.start(t);
+    osc.stop(t + dur + 0.05);
+    vibrato.start(t);
+    vibrato.stop(t + dur + 0.05);
+
+    t += dur;
+  }
 }
 
 export default function GuessTheSongGame() {
-  const [players, setPlayers] = useState<string[]>([
-    "Player 1",
-    "Player 2",
-    "Player 3",
-  ]);
-  const [scores, setScores] = useState<number[]>([]);
-  const [phase, setPhase] = useState<Phase>("setup");
-  const [round, setRound] = useState(0);
-  const [usedSongIds, setUsedSongIds] = useState<number[]>([]);
-  const [currentSong, setCurrentSong] = useState<Song | null>(null);
-  const [options, setOptions] = useState<Song[]>([]);
-  const [turnIndex, setTurnIndex] = useState(0);
-  const [guesses, setGuesses] = useState<Guess[]>([]);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [you, setYou] = useState<You | null>(null);
+  const [nameInput, setNameInput] = useState("");
+  const [pinInput, setPinInput] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+
+  const [joinCodeInput, setJoinCodeInput] = useState("");
+  const [menuError, setMenuError] = useState<string | null>(null);
+  const [menuBusy, setMenuBusy] = useState(false);
+
+  const [roomCode, setRoomCode] = useState<string | null>(null);
+  const [room, setRoom] = useState<RoomState | null>(null);
+  const [roomError, setRoomError] = useState<string | null>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const clipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const guessesRef = useRef<Guess[]>([]);
+  const reverbRef = useRef<ConvolverNode | null>(null);
+  const lastPlayedRoundRef = useRef<number | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    guessesRef.current = guesses;
-  }, [guesses]);
+    fetch("/api/auth")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.session) {
+          setYou({ accountId: data.session.accountId, gameName: data.session.gameName });
+        }
+      })
+      .finally(() => setCheckingSession(false));
+  }, []);
 
   const getAudioContext = useCallback(() => {
     if (!audioCtxRef.current) {
-      audioCtxRef.current = new AudioContext();
+      const ctx = new AudioContext();
+      audioCtxRef.current = ctx;
+      const convolver = ctx.createConvolver();
+      convolver.buffer = makeReverbImpulse(ctx, 0.9);
+      convolver.connect(ctx.destination);
+      reverbRef.current = convolver;
     }
-    if (audioCtxRef.current.state === "suspended") {
-      audioCtxRef.current.resume();
-    }
+    if (audioCtxRef.current.state === "suspended") audioCtxRef.current.resume();
     return audioCtxRef.current;
   }, []);
 
-  const playRiff = useCallback(() => {
-    const ctx = getAudioContext();
-    const now = ctx.currentTime;
-    const rootMidi = 40 + Math.floor(Math.random() * 12);
-    const intervals = [0, 3, 5, 7, 10];
-    intervals.forEach((interval, i) => {
-      const freq = 440 * Math.pow(2, (rootMidi + interval - 69) / 12);
-      const start = now + i * 0.22;
-      const osc = ctx.createOscillator();
-      osc.type = "sawtooth";
-      osc.frequency.value = freq;
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = 1500;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0, start);
-      gain.gain.linearRampToValueAtTime(0.3, start + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, start + 0.2);
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.22);
-    });
-  }, [getAudioContext]);
-
-  const pickRound = useCallback((prevUsed: number[]) => {
-    const available = SONGS.filter((s) => !prevUsed.includes(s.id));
-    const pool = available.length > 0 ? available : SONGS;
-    const song = pool[Math.floor(Math.random() * pool.length)];
-    const distractors = shuffle(SONGS.filter((s) => s.id !== song.id)).slice(0, 3);
-    setCurrentSong(song);
-    setOptions(shuffle([song, ...distractors]));
-    setTurnIndex(0);
-    setGuesses([]);
-    setUsedSongIds([...prevUsed, song.id]);
-    setPhase("clip");
-  }, []);
-
-  const startGame = useCallback(() => {
-    getAudioContext();
-    setScores(players.map(() => 0));
-    setRound(1);
-    pickRound([]);
-  }, [players, pickRound, getAudioContext]);
-
-  useEffect(() => {
-    if (phase !== "clip") return;
-    playRiff();
-    clipTimeoutRef.current = setTimeout(() => setPhase("guessing"), CLIP_MS);
-    return () => {
-      if (clipTimeoutRef.current) clearTimeout(clipTimeoutRef.current);
-    };
-  }, [phase, playRiff]);
-
-  const skipClip = useCallback(() => {
-    if (clipTimeoutRef.current) clearTimeout(clipTimeoutRef.current);
-    setPhase("guessing");
-  }, []);
-
-  const handleGuess = useCallback(
+  const playRiff = useCallback(
     (songId: number) => {
-      const newGuess: Guess = { playerIndex: turnIndex, songId };
-      const updatedGuesses = [...guessesRef.current, newGuess];
-      setGuesses(updatedGuesses);
-      if (turnIndex + 1 < players.length) {
-        setTurnIndex((t) => t + 1);
-      } else {
-        setScores((prev) => {
-          const next = [...prev];
-          for (const g of updatedGuesses) {
-            if (currentSong && g.songId === currentSong.id) next[g.playerIndex] += 1;
-          }
-          return next;
-        });
-        setPhase("reveal");
-      }
+      const ctx = getAudioContext();
+      const startTime = ctx.currentTime + 0.05;
+      const buffer = renderRiffBuffer(ctx, songId);
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const overdrive = ctx.createWaveShaper();
+      overdrive.curve = makeOverdriveCurve(30);
+      overdrive.oversample = "4x";
+
+      const toneFilter = ctx.createBiquadFilter();
+      toneFilter.type = "lowpass";
+      toneFilter.frequency.value = 3200;
+      const bodyFilter = ctx.createBiquadFilter();
+      bodyFilter.type = "highpass";
+      bodyFilter.frequency.value = 90;
+
+      const dryGain = ctx.createGain();
+      dryGain.gain.value = 0.85;
+      const wetGain = ctx.createGain();
+      wetGain.gain.value = 0.18;
+      const masterGain = ctx.createGain();
+      masterGain.gain.value = 0.5;
+
+      source.connect(overdrive);
+      overdrive.connect(toneFilter);
+      toneFilter.connect(bodyFilter);
+      bodyFilter.connect(dryGain);
+      bodyFilter.connect(wetGain);
+      dryGain.connect(masterGain);
+      masterGain.connect(ctx.destination);
+      if (reverbRef.current) wetGain.connect(reverbRef.current);
+
+      source.start(startTime);
+      playVocalLayer(ctx, songId, startTime, ctx.destination, reverbRef.current);
     },
-    [turnIndex, players.length, currentSong]
+    [getAudioContext]
   );
 
-  const nextRound = useCallback(() => {
-    if (round >= TOTAL_ROUNDS) {
-      setPhase("finished");
-    } else {
-      setRound((r) => r + 1);
-      pickRound(usedSongIds);
+  const fetchRoom = useCallback(async (code: string) => {
+    const res = await fetch(`/api/rooms/${code}`);
+    const data = await res.json();
+    if (!res.ok) {
+      setRoomError(data.error ?? "Something went wrong");
+      return;
     }
-  }, [round, usedSongIds, pickRound]);
+    setRoomError(null);
+    setRoom(data);
+  }, []);
 
-  const addPlayer = () =>
-    setPlayers((p) =>
-      p.length < MAX_PLAYERS ? [...p, `Player ${p.length + 1}`] : p
-    );
-  const removePlayer = () =>
-    setPlayers((p) => (p.length > MIN_PLAYERS ? p.slice(0, -1) : p));
-  const renamePlayer = (i: number, name: string) =>
-    setPlayers((p) => p.map((n, idx) => (idx === i ? name : n)));
+  useEffect(() => {
+    if (!roomCode) return;
+    let cancelled = false;
+    const tick = async () => {
+      await fetchRoom(roomCode);
+      if (!cancelled) pollTimerRef.current = setTimeout(tick, POLL_MS);
+    };
+    tick();
+    return () => {
+      cancelled = true;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    };
+  }, [roomCode, fetchRoom]);
 
-  const playAgain = () => {
-    setPhase("setup");
-    setScores([]);
-    setRound(0);
-    setUsedSongIds([]);
-    setCurrentSong(null);
-    setOptions([]);
-    setGuesses([]);
+  useEffect(() => {
+    if (!room?.round) return;
+    if (room.round.phase !== "clip") return;
+    if (lastPlayedRoundRef.current === room.round.roundNumber) return;
+    lastPlayedRoundRef.current = room.round.roundNumber;
+    playRiff(room.round.songId);
+  }, [room, playRiff]);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthBusy(true);
+    setAuthError(null);
+    try {
+      const res = await fetch("/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameName: nameInput, pin: pinInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAuthError(data.error ?? "Couldn't sign in");
+        return;
+      }
+      setYou({ accountId: data.accountId, gameName: data.gameName });
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
-  const standings = useMemo(() => {
-    return players
-      .map((name, i) => ({ name, score: scores[i] ?? 0 }))
-      .sort((a, b) => b.score - a.score)
-      .map((entry, _i, arr) => ({
-        ...entry,
-        rank: 1 + arr.filter((e) => e.score > entry.score).length,
-      }));
-  }, [players, scores]);
+  const createRoom = async () => {
+    setMenuBusy(true);
+    setMenuError(null);
+    getAudioContext();
+    try {
+      const res = await fetch("/api/rooms", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setMenuError(data.error ?? "Couldn't create a room");
+        return;
+      }
+      setRoomCode(data.roomCode);
+    } finally {
+      setMenuBusy(false);
+    }
+  };
 
-  const medal = (rank: number) =>
-    rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
+  const joinRoom = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = joinCodeInput.trim().toUpperCase();
+    if (!code) return;
+    setMenuBusy(true);
+    setMenuError(null);
+    getAudioContext();
+    try {
+      const res = await fetch(`/api/rooms/${code}/join`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setMenuError(data.error ?? "Couldn't join that room");
+        return;
+      }
+      setRoomCode(data.roomCode);
+    } finally {
+      setMenuBusy(false);
+    }
+  };
+
+  const startGame = async () => {
+    if (!roomCode) return;
+    setActionBusy(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomCode}/start`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) setRoomError(data.error ?? "Couldn't start the game");
+      else fetchRoom(roomCode);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const submitGuess = async (songId: number) => {
+    if (!roomCode) return;
+    setActionBusy(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomCode}/guess`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songId }),
+      });
+      const data = await res.json();
+      if (!res.ok) setRoomError(data.error ?? "Couldn't submit your guess");
+      else fetchRoom(roomCode);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const nextRound = async () => {
+    if (!roomCode) return;
+    setActionBusy(true);
+    try {
+      const res = await fetch(`/api/rooms/${roomCode}/next`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) setRoomError(data.error ?? "Couldn't advance the round");
+      else fetchRoom(roomCode);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const leaveToMenu = () => {
+    setRoomCode(null);
+    setRoom(null);
+    setRoomError(null);
+    lastPlayedRoundRef.current = null;
+  };
+
+  const switchPlayer = async () => {
+    await fetch("/api/auth", { method: "DELETE" });
+    setYou(null);
+    leaveToMenu();
+  };
+
+  const copyCode = () => {
+    if (roomCode) navigator.clipboard?.writeText(roomCode);
+  };
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-black text-white font-sans px-4 py-10 gap-6">
-      <div className="flex items-center gap-4">
-        <h1 className="text-4xl font-extrabold tracking-tight text-center">
-          🎤 Guess the Rock Song
-        </h1>
-      </div>
+      <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-center">
+        🎤 Guess the Rock Song
+      </h1>
       <Link href="/game" className="text-sm text-zinc-400 hover:text-white -mt-4">
         ⬅ Back to Rhythm Game
       </Link>
 
-      {phase === "setup" && (
-        <div className="w-full max-w-md bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-4">
+      {checkingSession && <p className="text-zinc-400">Loading...</p>}
+
+      {!checkingSession && !you && (
+        <form
+          onSubmit={handleAuth}
+          className="w-full max-w-sm bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-3"
+        >
           <p className="text-zinc-400 text-sm text-center">
-            A short mystery riff plays, then everyone takes a turn guessing the
-            song. Most correct guesses wins!
+            Pick a name and a PIN. Use the same ones next time to keep your
+            identity if you get disconnected.
           </p>
-          <div className="flex flex-col gap-2">
-            {players.map((name, i) => (
-              <input
-                key={i}
-                value={name}
-                onChange={(e) => renamePlayer(i, e.target.value)}
-                className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 font-mono"
-              />
-            ))}
-          </div>
-          <div className="flex items-center justify-center gap-3">
-            <button
-              onClick={removePlayer}
-              disabled={players.length <= MIN_PLAYERS}
-              className="w-9 h-9 rounded-full bg-zinc-700 disabled:opacity-30 font-bold"
-            >
-              −
-            </button>
-            <span className="text-sm text-zinc-400">{players.length} players</span>
-            <button
-              onClick={addPlayer}
-              disabled={players.length >= MAX_PLAYERS}
-              className="w-9 h-9 rounded-full bg-zinc-700 disabled:opacity-30 font-bold"
-            >
-              +
-            </button>
-          </div>
+          <input
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            placeholder="Your name"
+            maxLength={20}
+            className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 font-mono"
+          />
+          <input
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ""))}
+            placeholder="4-6 digit PIN"
+            inputMode="numeric"
+            maxLength={6}
+            className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2 font-mono"
+          />
+          {authError && <p className="text-red-400 text-sm text-center">{authError}</p>}
           <button
-            onClick={startGame}
-            className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors"
+            type="submit"
+            disabled={authBusy}
+            className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
           >
-            Start Game
+            {authBusy ? "..." : "Continue"}
+          </button>
+        </form>
+      )}
+
+      {!checkingSession && you && !roomCode && (
+        <div className="w-full max-w-sm bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-400">
+              Playing as <span className="text-white font-semibold">{you.gameName}</span>
+            </p>
+            <button onClick={switchPlayer} className="text-xs text-zinc-500 hover:text-white underline">
+              switch player
+            </button>
+          </div>
+
+          <button
+            onClick={createRoom}
+            disabled={menuBusy}
+            className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+          >
+            🎸 Create a Room
+          </button>
+
+          <div className="flex items-center gap-2 text-zinc-500 text-xs">
+            <div className="flex-1 h-px bg-zinc-700" /> or join with a code{" "}
+            <div className="flex-1 h-px bg-zinc-700" />
+          </div>
+
+          <form onSubmit={joinRoom} className="flex gap-2">
+            <input
+              value={joinCodeInput}
+              onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+              placeholder="ROOM CODE"
+              maxLength={5}
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 font-mono tracking-widest text-center"
+            />
+            <button
+              type="submit"
+              disabled={menuBusy}
+              className="rounded-full border border-zinc-600 px-5 py-2 font-semibold hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            >
+              Join
+            </button>
+          </form>
+          {menuError && <p className="text-red-400 text-sm text-center">{menuError}</p>}
+        </div>
+      )}
+
+      {roomCode && !room && !roomError && <p className="text-zinc-400">Loading room...</p>}
+
+      {roomCode && roomError && (
+        <div className="w-full max-w-sm bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-3 items-center">
+          <p className="text-red-400 text-sm text-center">{roomError}</p>
+          <button
+            onClick={leaveToMenu}
+            className="rounded-full border border-zinc-600 px-5 py-2 font-semibold hover:bg-zinc-800 transition-colors"
+          >
+            Back to Menu
           </button>
         </div>
       )}
 
-      {phase !== "setup" && phase !== "finished" && (
+      {room && room.status === "lobby" && (
+        <div className="w-full max-w-sm bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-4 items-center">
+          <p className="text-zinc-400 text-sm">Room code — share this with your friends</p>
+          <button
+            onClick={copyCode}
+            className="text-4xl font-mono font-extrabold tracking-[0.3em] bg-zinc-800 border border-zinc-700 rounded-lg px-6 py-3 hover:bg-zinc-700 transition-colors"
+            title="Copy code"
+          >
+            {room.code}
+          </button>
+          <div className="w-full flex flex-col gap-2">
+            {room.players.map((p) => (
+              <div
+                key={p.accountId}
+                className="flex items-center justify-between bg-zinc-800 rounded px-4 py-2"
+              >
+                <span>{p.gameName}</span>
+                {p.accountId === room.hostAccountId && (
+                  <span className="text-xs text-zinc-500">HOST</span>
+                )}
+              </div>
+            ))}
+          </div>
+          {room.you.isHost ? (
+            <button
+              onClick={startGame}
+              disabled={actionBusy || room.players.length < 2}
+              className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-40"
+            >
+              {room.players.length < 2 ? "Waiting for more players..." : "Start Game"}
+            </button>
+          ) : (
+            <p className="text-zinc-400 text-sm">Waiting for the host to start...</p>
+          )}
+        </div>
+      )}
+
+      {room && room.status === "active" && room.round && (
         <div className="w-full max-w-md bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-5">
           <p className="text-center text-sm text-zinc-400 font-mono">
-            Round {round} / {TOTAL_ROUNDS}
+            Round {room.round.roundNumber} / {room.totalRounds}
           </p>
 
-          {phase === "clip" && (
-            <div className="flex flex-col items-center gap-4 py-8">
-              <span className="text-5xl animate-bounce">🎵</span>
-              <p className="text-zinc-300">Listen closely...</p>
-              <button
-                onClick={skipClip}
-                className="text-sm text-zinc-400 hover:text-white underline"
-              >
-                Skip ▶
-              </button>
-            </div>
-          )}
-
-          {phase === "guessing" && (
+          {(room.round.phase === "clip" || room.round.phase === "guessing") && (
             <>
-              <p className="text-center font-semibold text-lg">
-                {players[turnIndex]}&apos;s turn — what&apos;s that song?
-              </p>
-              <p className="text-center text-xs text-zinc-500">
-                Guess {turnIndex + 1} of {players.length}
-              </p>
-              <div className="grid grid-cols-1 gap-2">
-                {options.map((song) => (
-                  <button
-                    key={song.id}
-                    onClick={() => handleGuess(song.id)}
-                    className="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-3 text-left transition-colors"
-                  >
-                    <span className="font-semibold">{song.title}</span>{" "}
-                    <span className="text-zinc-400">— {song.artist}</span>
-                  </button>
-                ))}
-              </div>
+              {room.round.phase === "clip" && (
+                <p className="text-center text-zinc-400 text-sm -mb-2">
+                  🎸 Still playing... but you can answer anytime, no need to wait
+                </p>
+              )}
+              {room.round.yourGuessSongId == null ? (
+                <>
+                  <p className="text-center font-semibold text-lg">What&apos;s that song?</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {room.round.options.map((song) => (
+                      <button
+                        key={song.id}
+                        onClick={() => submitGuess(song.id)}
+                        disabled={actionBusy}
+                        className="rounded-lg bg-zinc-800 hover:bg-zinc-700 px-4 py-3 text-left transition-colors disabled:opacity-50"
+                      >
+                        <span className="font-semibold">{song.title}</span>{" "}
+                        <span className="text-zinc-400">— {song.artist}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="text-center text-zinc-400">
+                  Guess locked in — waiting for{" "}
+                  {room.players.length - room.round.guesses.length} more player
+                  {room.players.length - room.round.guesses.length === 1 ? "" : "s"}...
+                </p>
+              )}
             </>
           )}
 
-          {phase === "reveal" && currentSong && (
+          {room.round.phase === "reveal" && (
             <>
               <p className="text-center">
                 🎸 It was{" "}
-                <span className="font-semibold">{currentSong.title}</span> by{" "}
-                {currentSong.artist}
+                <span className="font-semibold">
+                  {room.round.options.find((s) => s.id === room.round!.songId)?.title}
+                </span>{" "}
+                by {room.round.options.find((s) => s.id === room.round!.songId)?.artist}
               </p>
               <div className="flex flex-col gap-2">
-                {players.map((name, i) => {
-                  const g = guesses.find((gu) => gu.playerIndex === i);
-                  const guessedSong = SONGS.find((s) => s.id === g?.songId);
-                  const correct = g?.songId === currentSong.id;
+                {room.players.map((p) => {
+                  const g = room.round!.guesses.find((gu) => gu.roomPlayerId === p.id);
+                  const guessedSong = room.round!.options.find((s) => s.id === g?.songId);
                   return (
                     <div
-                      key={i}
-                      className="flex items-center justify-between gap-3 bg-zinc-800 rounded px-4 py-2"
+                      key={p.accountId}
+                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 bg-zinc-800 rounded px-4 py-2"
                     >
-                      <span>{name}</span>
+                      <span className="min-w-0 truncate">{p.gameName}</span>
                       <span
                         className={
-                          correct ? "text-green-400 text-sm" : "text-red-400 text-sm"
+                          g?.isCorrect
+                            ? "text-green-400 text-sm min-w-0 truncate"
+                            : "text-red-400 text-sm min-w-0 truncate"
                         }
                       >
-                        {correct ? "✅" : "❌"} {guessedSong?.title ?? "—"}
+                        {g ? (g.isCorrect ? "✅" : "❌") : "—"} {guessedSong?.title ?? "no guess"}
                       </span>
-                      <span className="font-mono text-sm">
-                        {scores[i] ?? 0} pts
-                      </span>
+                      <span className="font-mono text-sm">{p.score} pts</span>
                     </div>
                   );
                 })}
               </div>
-              <button
-                onClick={nextRound}
-                className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors"
-              >
-                {round >= TOTAL_ROUNDS ? "See Final Results" : "Next Round"}
-              </button>
+              {room.you.isHost ? (
+                <button
+                  onClick={nextRound}
+                  disabled={actionBusy}
+                  className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                >
+                  {room.currentRoundNumber >= room.totalRounds ? "See Final Results" : "Next Round"}
+                </button>
+              ) : (
+                <p className="text-center text-zinc-400 text-sm">Waiting for the host...</p>
+              )}
             </>
           )}
         </div>
       )}
 
-      {phase === "finished" && (
+      {room && room.status === "finished" && (
         <div className="w-full max-w-md bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-4">
           <h2 className="text-2xl font-bold text-center">🏆 Final Results</h2>
           <div className="flex flex-col gap-2">
-            {standings.map((s, i) => (
-              <div
-                key={i}
-                className="flex items-center justify-between bg-zinc-800 rounded px-4 py-3"
-              >
-                <span className="font-mono text-lg">{medal(s.rank)}</span>
-                <span className="flex-1 px-3">{s.name}</span>
-                <span className="font-mono">{s.score} pts</span>
-              </div>
-            ))}
+            {[...room.players]
+              .sort((a, b) => b.score - a.score)
+              .map((p, i) => (
+                <div
+                  key={p.accountId}
+                  className="flex items-center justify-between bg-zinc-800 rounded px-4 py-3"
+                >
+                  <span className="font-mono text-lg">
+                    {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
+                  </span>
+                  <span className="flex-1 px-3 truncate">{p.gameName}</span>
+                  <span className="font-mono">{p.score} pts</span>
+                </div>
+              ))}
           </div>
           <button
-            onClick={playAgain}
+            onClick={leaveToMenu}
             className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors"
           >
-            Play Again
+            Back to Menu
           </button>
         </div>
       )}
