@@ -5,7 +5,7 @@ import { SONGS, shuffle } from "@/app/lib/songs";
 export const CLIP_MS = 10000;
 export const GUESS_WINDOW_MS = 20000;
 export const TOTAL_ROUNDS = 8;
-export const MIN_PLAYERS = 2;
+export const MIN_PLAYERS = 1;
 export const MAX_PLAYERS = 8;
 
 const generateCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 5);

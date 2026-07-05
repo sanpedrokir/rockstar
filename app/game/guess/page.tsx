@@ -573,10 +573,10 @@ export default function GuessTheSongGame() {
           {room.you.isHost ? (
             <button
               onClick={startGame}
-              disabled={actionBusy || room.players.length < 2}
+              disabled={actionBusy}
               className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-40"
             >
-              {room.players.length < 2 ? "Waiting for more players..." : "Start Game"}
+              {room.players.length < 2 ? "Start Solo" : "Start Game"}
             </button>
           ) : (
             <p className="text-zinc-400 text-sm">Waiting for the host to start...</p>
