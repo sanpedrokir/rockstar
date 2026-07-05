@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getSession } from "@/app/lib/session";
 import { MIN_PLAYERS, pickRound } from "@/app/lib/room";
+import type { Difficulty } from "@/app/lib/songs";
 
 export async function POST(
   _request: Request,
@@ -36,7 +37,7 @@ export async function POST(
     );
   }
 
-  const { songId, optionIds } = pickRound([]);
+  const { songId, optionIds } = pickRound([], room.difficulty as Difficulty);
   await prisma.$transaction([
     prisma.round.create({
       data: { roomId: room.id, roundNumber: 1, songId, optionIds },

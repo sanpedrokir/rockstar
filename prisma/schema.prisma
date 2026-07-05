@@ -30,6 +30,7 @@ model GameRoom {
   hostId       Int      @map("host_account_id")
   host         Account  @relation("RoomHost", fields: [hostId], references: [id])
   status       String   @default("lobby")
+  difficulty   String   @default("normal")
   totalRounds  Int      @default(8) @map("total_rounds")
   currentRound Int      @default(0) @map("current_round")
   createdAt    DateTime @default(now()) @map("created_at")

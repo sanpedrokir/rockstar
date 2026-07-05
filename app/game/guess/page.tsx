@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Song } from "@/app/lib/songs";
+import { DIFFICULTIES, type Difficulty, type Song } from "@/app/lib/songs";
 import { midiToFreq, pluckString, makeOverdriveCurve, makeReverbImpulse } from "@/app/lib/guitarSynth";
 
 const CLIP_MS = 10000; // mirrors app/lib/room.ts CLIP_MS
@@ -25,6 +25,7 @@ type RoundView = {
 type RoomState = {
   code: string;
   status: "lobby" | "active" | "finished";
+  difficulty: Difficulty;
   totalRounds: number;
   currentRoundNumber: number;
   hostAccountId: number;
@@ -160,6 +161,7 @@ export default function GuessTheSongGame() {
   const [authBusy, setAuthBusy] = useState(false);
 
   const [joinCodeInput, setJoinCodeInput] = useState("");
+  const [difficultyChoice, setDifficultyChoice] = useState<Difficulty>("normal");
   const [menuError, setMenuError] = useState<string | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
 
@@ -325,7 +327,11 @@ export default function GuessTheSongGame() {
     setMenuError(null);
     getAudioContext();
     try {
-      const res = await fetch("/api/rooms", { method: "POST" });
+      const res = await fetch("/api/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ difficulty: difficultyChoice }),
+      });
       const data = await res.json();
       if (!res.ok) {
         setMenuError(data.error ?? "Couldn't create a room");
@@ -466,8 +472,8 @@ export default function GuessTheSongGame() {
       )}
 
       {!checkingSession && you && !roomCode && (
-        <div className="w-full max-w-sm bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-4">
-          <div className="flex items-center justify-between">
+        <div className="w-full max-w-2xl flex flex-col gap-4">
+          <div className="flex items-center justify-between px-1">
             <p className="text-sm text-zinc-400">
               Playing as <span className="text-white font-semibold">{you.gameName}</span>
             </p>
@@ -476,40 +482,58 @@ export default function GuessTheSongGame() {
             </button>
           </div>
 
-          <button
-            onClick={createRoom}
-            disabled={menuBusy}
-            className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
-          >
-            🎸 Create a Room
-          </button>
-
-          <div className="flex items-center gap-2 text-zinc-500 text-xs">
-            <div className="flex-1 h-px bg-zinc-700" /> OR{" "}
-            <div className="flex-1 h-px bg-zinc-700" />
-          </div>
-
-          <form onSubmit={joinRoom} className="flex flex-col gap-2">
-            <label className="text-sm text-zinc-400 font-semibold">
-              🔗 Join a Room — got a code from a friend?
-            </label>
-            <div className="flex gap-2">
-              <input
-                value={joinCodeInput}
-                onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
-                placeholder="ROOM CODE"
-                maxLength={5}
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 font-mono tracking-widest text-center"
-              />
+          <div className="flex flex-col sm:flex-row gap-4">
+            <div className="flex-1 bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-3 items-center text-center">
+              <p className="text-lg font-bold">🎸 Start a Room</p>
+              <p className="text-zinc-400 text-sm">
+                Create a room and share the code with friends.
+              </p>
+              <div className="flex gap-1.5">
+                {DIFFICULTIES.map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDifficultyChoice(d)}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold capitalize transition-colors ${
+                      difficultyChoice === d
+                        ? "bg-white text-black"
+                        : "border border-zinc-600 text-zinc-400 hover:bg-zinc-800"
+                    }`}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
               <button
-                type="submit"
+                onClick={createRoom}
                 disabled={menuBusy}
-                className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                className="mt-auto w-full rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
               >
-                Join
+                Create a Room
               </button>
             </div>
-          </form>
+
+            <div className="flex-1 bg-zinc-900 border-2 border-zinc-700 rounded-lg p-6 flex flex-col gap-3 items-center text-center">
+              <p className="text-lg font-bold">🔗 Join a Room</p>
+              <p className="text-zinc-400 text-sm">Got a code from a friend? Enter it here.</p>
+              <form onSubmit={joinRoom} className="mt-auto w-full flex gap-2">
+                <input
+                  value={joinCodeInput}
+                  onChange={(e) => setJoinCodeInput(e.target.value.toUpperCase())}
+                  placeholder="ROOM CODE"
+                  maxLength={5}
+                  className="flex-1 min-w-0 bg-zinc-800 border border-zinc-700 rounded px-3 py-2 font-mono tracking-widest text-center"
+                />
+                <button
+                  type="submit"
+                  disabled={menuBusy}
+                  className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
+                >
+                  Join
+                </button>
+              </form>
+            </div>
+          </div>
           {menuError && <p className="text-red-400 text-sm text-center">{menuError}</p>}
         </div>
       )}
@@ -538,6 +562,9 @@ export default function GuessTheSongGame() {
           >
             {room.code}
           </button>
+          <span className="text-xs uppercase tracking-wide text-zinc-500 bg-zinc-800 rounded-full px-3 py-1">
+            Difficulty: {room.difficulty}
+          </span>
           <div className="w-full flex flex-col gap-2">
             {room.players.map((p) => (
               <div
@@ -570,6 +597,23 @@ export default function GuessTheSongGame() {
           <p className="text-center text-sm text-zinc-400 font-mono">
             Round {room.round.roundNumber} / {room.totalRounds}
           </p>
+
+          <div className="flex gap-2 overflow-x-auto -mx-1 px-1">
+            {[...room.players]
+              .sort((a, b) => b.score - a.score)
+              .map((p, i) => (
+                <div
+                  key={p.accountId}
+                  className="flex items-center gap-1.5 shrink-0 bg-zinc-800 rounded-full px-3 py-1 text-xs font-mono"
+                >
+                  <span className="text-zinc-500">
+                    {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
+                  </span>
+                  <span className="truncate max-w-[7rem]">{p.gameName}</span>
+                  <span className="text-zinc-400">{p.score}</span>
+                </div>
+              ))}
+          </div>
 
           {(room.round.phase === "clip" || room.round.phase === "guessing") && (
             <>
@@ -644,7 +688,7 @@ export default function GuessTheSongGame() {
                   disabled={actionBusy}
                   className="rounded-full bg-white text-black px-6 py-3 font-semibold hover:bg-zinc-200 transition-colors disabled:opacity-50"
                 >
-                  {room.currentRoundNumber >= room.totalRounds ? "See Final Results" : "Next Round"}
+                  {room.currentRoundNumber >= room.totalRounds ? "See Final Results" : "Next Song"}
                 </button>
               ) : (
                 <p className="text-center text-zinc-400 text-sm">Waiting for the host...</p>

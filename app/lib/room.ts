@@ -1,6 +1,6 @@
 import "server-only";
 import { customAlphabet } from "nanoid";
-import { SONGS, shuffle } from "@/app/lib/songs";
+import { SONGS, shuffle, type Difficulty } from "@/app/lib/songs";
 
 export const CLIP_MS = 10000;
 export const GUESS_WINDOW_MS = 20000;
@@ -13,11 +13,18 @@ export function generateRoomCode() {
   return generateCode();
 }
 
-export function pickRound(excludeSongIds: number[]) {
-  const available = SONGS.filter((s) => !excludeSongIds.includes(s.id));
-  const pool = available.length > 0 ? available : SONGS;
+export function pickRound(excludeSongIds: number[], difficulty: Difficulty = "normal") {
+  const tierSongs = SONGS.filter((s) => s.difficulty === difficulty);
+  const tier = tierSongs.length > 0 ? tierSongs : SONGS;
+  const available = tier.filter((s) => !excludeSongIds.includes(s.id));
+  const pool = available.length > 0 ? available : tier;
   const song = pool[Math.floor(Math.random() * pool.length)];
-  const distractors = shuffle(SONGS.filter((s) => s.id !== song.id)).slice(0, 3);
+
+  // Draw wrong options from the same difficulty tier too, so "hard" rounds
+  // don't give the answer away via three obviously-famous decoys.
+  const distractorPool = tier.filter((s) => s.id !== song.id);
+  const distractorSource = distractorPool.length >= 3 ? distractorPool : SONGS.filter((s) => s.id !== song.id);
+  const distractors = shuffle(distractorSource).slice(0, 3);
   const options = shuffle([song, ...distractors]);
   return { songId: song.id, optionIds: options.map((s) => s.id) };
 }

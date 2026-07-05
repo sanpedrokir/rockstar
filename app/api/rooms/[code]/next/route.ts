@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getSession } from "@/app/lib/session";
 import { computeRoundPhase, pickRound } from "@/app/lib/room";
+import type { Difficulty } from "@/app/lib/songs";
 
 export async function POST(
   _request: Request,
@@ -59,7 +60,7 @@ export async function POST(
   const priorSongIds = (
     await prisma.round.findMany({ where: { roomId: room.id }, select: { songId: true } })
   ).map((r) => r.songId);
-  const { songId, optionIds } = pickRound(priorSongIds);
+  const { songId, optionIds } = pickRound(priorSongIds, room.difficulty as Difficulty);
   const nextRoundNumber = room.currentRound + 1;
 
   await prisma.$transaction([

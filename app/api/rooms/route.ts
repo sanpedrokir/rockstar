@@ -2,12 +2,19 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/prisma";
 import { getSession } from "@/app/lib/session";
 import { generateRoomCode, TOTAL_ROUNDS } from "@/app/lib/room";
+import { DIFFICULTIES, type Difficulty } from "@/app/lib/songs";
 
-export async function POST() {
+export async function POST(request: Request) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "Not signed in" }, { status: 401 });
   }
+
+  const body = await request.json().catch(() => null);
+  const requestedDifficulty = body?.difficulty;
+  const difficulty: Difficulty = DIFFICULTIES.includes(requestedDifficulty)
+    ? requestedDifficulty
+    : "normal";
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const roomCode = generateRoomCode();
@@ -17,6 +24,7 @@ export async function POST() {
           roomCode,
           hostId: session.accountId,
           totalRounds: TOTAL_ROUNDS,
+          difficulty,
           players: { create: { accountId: session.accountId } },
         },
       });

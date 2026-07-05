@@ -77,6 +77,7 @@ export async function GET(
   return NextResponse.json({
     code: room.roomCode,
     status: room.status,
+    difficulty: room.difficulty,
     totalRounds: room.totalRounds,
     currentRoundNumber: room.currentRound,
     hostAccountId: room.hostId,
